@@ -41,10 +41,15 @@ impl<'a, 'b> Map<'a, 'b> {
             my_position,
         }
     }
+    fn clean_up_zoom(&mut self, zoom: u8){
+        if let Some(tiles) = &mut self.tiles{
+            tiles.clean_up_zoom(zoom);
+        }
+    }
 }
 
 impl Widget for Map<'_, '_> {
-    fn ui(self, ui: &mut Ui) -> Response {
+    fn ui(mut self, ui: &mut Ui) -> Response {
         let (rect, response) = ui.allocate_exact_size(ui.available_size(), Sense::drag());
 
         if response.hovered() {
@@ -55,7 +60,10 @@ impl Widget for Map<'_, '_> {
             if !(0.99..=1.01).contains(&zoom_delta) {
                 // Shift by 1 because of the values given by zoom_delta(). Multiple by 2, because
                 // then it felt right with both mouse wheel, and an Android phone.
-                self.memory.zoom.zoom_by((zoom_delta - 1.) * 2.);
+                let old = self.memory.zoom.round();
+                if self.memory.zoom.zoom_by((zoom_delta - 1.) * 2.) {
+                    self.clean_up_zoom(old);
+                };
             } else {
                 self.memory
                     .center_mode
@@ -105,7 +113,7 @@ impl Center {
         if response.dragged_by(egui::PointerButton::Primary) {
             // We always end up in some exact, "detached" position, regardless of the current mode.
             *self = Center::Exact(screen_to_position(
-                self.position(my_position).project(zoom) - response.drag_delta(),
+                &(self.position(my_position).project(zoom) - response.drag_delta()),
                 zoom,
             ));
         }

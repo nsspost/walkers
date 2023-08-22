@@ -10,5 +10,6 @@ mod zoom;
 
 pub use map::{Center, Map, MapMemory};
 pub use mercator::{screen_to_position, Position, PositionExt};
-pub use tiles::Tiles;
+pub use tiles::{Tiles, Tile};
 pub use zoom::Zoom;
+pub use mercator::TileId;

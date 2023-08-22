@@ -10,6 +10,13 @@ pub fn openstreetmap(tile_id: TileId) -> String {
     )
 }
 
+pub fn opentopomap(tile_id: TileId) -> String {
+    format!(
+        "https://tile.opentopomap.org/{}/{}/{}.png",
+        tile_id.zoom, tile_id.x, tile_id.y
+    )
+}
+
 /// Orthophotomap layer from Poland's Geoportal.
 /// <https://www.geoportal.gov.pl/uslugi/usluga-przegladania-wms>
 pub fn geoportal(tile_id: TileId) -> String {

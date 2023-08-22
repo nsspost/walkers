@@ -15,10 +15,14 @@ pub struct Tile {
 }
 
 impl Tile {
-    fn from_image_bytes(image: &[u8]) -> Result<Self, String> {
+    pub fn from_image_bytes(image: &[u8]) -> Result<Self, String> {
         RetainedImage::from_image_bytes("debug_name", image).map(|image| Self {
             image: Arc::new(image),
         })
+    }
+
+    pub fn from_retained_image(image: RetainedImage)->Self{
+        Self { image: Arc::new(image) }
     }
 
     pub fn rect(&self, screen_position: Vec2) -> Rect {
@@ -52,12 +56,15 @@ pub struct Tiles {
 
     #[allow(dead_code)] // Significant Drop
     tokio_runtime_thread: TokioRuntimeThread,
+
+    hard_cache: Box<dyn Fn(&TileId)->Result<Tile, String>>
 }
 
 impl Tiles {
-    pub fn new<S>(source: S, egui_ctx: Context) -> Self
+    pub fn new<S, C>(source: S, egui_ctx: Context, cache: C) -> Self
     where
         S: Fn(TileId) -> String + Send + 'static,
+        C: Fn(&TileId) -> Result<Tile, String> + 'static
     {
         let tokio_runtime_thread = TokioRuntimeThread::new();
 
@@ -74,6 +81,7 @@ impl Tiles {
             request_tx,
             tile_rx,
             tokio_runtime_thread,
+            hard_cache: Box::new(cache)
         }
     }
 
@@ -93,6 +101,10 @@ impl Tiles {
         match self.cache.entry(tile_id) {
             Entry::Occupied(entry) => entry.get().clone(),
             Entry::Vacant(entry) => {
+                if let Ok(tile) = (self.hard_cache)(&tile_id){
+                    entry.insert(Some(tile.clone()));
+                    return Some(tile);
+                }
                 if let Ok(()) = self.request_tx.try_send(tile_id) {
                     log::debug!("Requested tile: {:?}", tile_id);
                     entry.insert(None);
@@ -102,6 +114,21 @@ impl Tiles {
                 None
             }
         }
+    }
+
+    pub fn insert(&mut self, tile_id: TileId, tile: Tile){
+        self.cache.insert(tile_id, Some(tile));
+    }
+
+    pub fn cache(&self)->&HashMap<TileId, Option<Tile>>{
+        &self.cache
+    }
+
+    pub fn clean_up_zoom(&mut self, zoom: u8){
+        log::debug!("Clean up zoom: {zoom}");
+        self.cache.retain(|k, v|{
+            k.zoom != zoom
+        });
     }
 }
 
@@ -201,7 +228,9 @@ mod tests {
             .with_body(include_bytes!("valid.png"))
             .create();
 
-        let mut tiles = Tiles::new(source, Context::default());
+        let mut tiles = Tiles::new(source, Context::default(), |_|{
+            Err(String::new())
+        });
 
         // First query start the download, but it will always return None.
         assert!(tiles.at(TILE_ID).is_none());
@@ -224,7 +253,9 @@ mod tests {
         let _ = env_logger::try_init();
 
         let (mut server, source) = mockito_server();
-        let mut tiles = Tiles::new(source, Context::default());
+        let mut tiles = Tiles::new(source, Context::default(),  |_|{
+            Err(String::new())
+        });
         let tile_mock = server.mock("GET", "/3/1/2.png").with_status(404).create();
 
         assert_tile_is_empty_forever(&mut tiles);
@@ -236,7 +267,9 @@ mod tests {
         let _ = env_logger::try_init();
 
         let (mut server, source) = mockito_server();
-        let mut tiles = Tiles::new(source, Context::default());
+        let mut tiles = Tiles::new(source, Context::default(),  |_|{
+            Err(String::new())
+        });
         let tile_mock = server.mock("GET", "/3/1/2.png").create();
 
         assert_tile_is_empty_forever(&mut tiles);
@@ -248,7 +281,9 @@ mod tests {
         let _ = env_logger::try_init();
 
         let (mut server, source) = mockito_server();
-        let mut tiles = Tiles::new(source, Context::default());
+        let mut tiles = Tiles::new(source, Context::default(),  |_|{
+            Err(String::new())
+        });
         let tile_mock = server
             .mock("GET", "/3/1/2.png")
             .with_body("definitely not an image")
@@ -263,7 +298,9 @@ mod tests {
         let _ = env_logger::try_init();
 
         let source = |_| "totally invalid url".to_string();
-        let mut tiles = Tiles::new(source, Context::default());
+        let mut tiles = Tiles::new(source, Context::default(),  |_|{
+            Err(String::new())
+        });
 
         assert_tile_is_empty_forever(&mut tiles);
     }
